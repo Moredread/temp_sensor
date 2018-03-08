@@ -8,7 +8,14 @@ Adafruit_7segment matrix_down = Adafruit_7segment();
 
 BME280 sensor = BME280();
 
+bool page = true;
+
 const uint8_t brightness = 1;
+
+static const int SENSOR_ADDRESS = 0x77;
+static const int MATRIX_UP_ADDRESS = 0x70;
+static const int MATRIX_DOWN_ADDRESS = 0x71;
+static const int BAUD = 115200;
 
 void setup_matrix(Adafruit_7segment &matrix, uint8_t address) {
   matrix.begin(address);
@@ -24,7 +31,7 @@ void setup_sensor(BME280 &sensor) {
   
   //For I2C, enable the following and disable the SPI section
   sensor.settings.commInterface = I2C_MODE;
-  sensor.settings.I2CAddress = 0x77;
+  sensor.settings.I2CAddress = SENSOR_ADDRESS;
   
   //For SPI enable the following and dissable the I2C section
   //mySensor.settings.commInterface = SPI_MODE;
@@ -80,11 +87,11 @@ void setup_sensor(BME280 &sensor) {
 }
 
 void setup() {
-  Serial.begin(38400);
+  Serial.begin(BAUD);
   Serial.println("Temperature and Pressure sensor");
 
-  setup_matrix(matrix_up, 0x70);
-  setup_matrix(matrix_down, 0x71);
+  setup_matrix(matrix_up, MATRIX_UP_ADDRESS);
+  setup_matrix(matrix_down, MATRIX_DOWN_ADDRESS);
 
   setup_sensor(sensor);
 }
@@ -124,27 +131,23 @@ struct sensor_data_t get_sensor_data(BME280 &sensor) {
 }
 
 void loop() {
-  bool page = true;
+  sensor_data_t sensor_data = get_sensor_data(sensor);
 
-  while(true) {
-    sensor_data_t sensor_data = get_sensor_data(sensor);
-    
-    serial_sensor_out(sensor_data);
+  serial_sensor_out(sensor_data);
 
-    if(page) {
-      matrix_up.print(sensor_data.temperature);
-      matrix_down.print(sensor_data.pressure/100.);
-      page = false;
-    } else {
-      matrix_up.print(sensor_data.humidity);
-      matrix_down.print(sensor_data.height);
-      page = true;
-    }
-
-    matrix_up.writeDisplay();
-    matrix_down.writeDisplay();
-
-    delay(5000);
+  if(page) {
+    matrix_up.print(sensor_data.temperature);
+    matrix_down.print(sensor_data.pressure/100.);
+    page = false;
+  } else {
+    matrix_up.print(sensor_data.humidity);
+    matrix_down.print(sensor_data.height);
+    page = true;
   }
+
+  matrix_up.writeDisplay();
+  matrix_down.writeDisplay();
+
+  delay(5000);
 }
 
