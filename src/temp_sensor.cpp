@@ -1,7 +1,6 @@
 #include <Arduino.h>
 
 #include <ESP8266WiFi.h>
-#include <WiFiClient.h>
 #include <ESP8266WebServer.h>
 #include <ESP8266mDNS.h>
 
@@ -9,6 +8,12 @@
 
 #include <Adafruit_LEDBackpack.h>
 #include <SparkFunBME280.h>
+
+//#define OTA
+
+#ifdef OTA
+#include <ArduinoOTA.h>
+#endif
 
 #include "credentials.h"
 
@@ -38,24 +43,39 @@ Task sensor_task(500, TASK_FOREVER, &sensor_update);
 Task display_task(5000, TASK_FOREVER, &display_update);
 Task server_task(100, TASK_FOREVER, &server_update);
 
+#ifdef OTA
+Task ota_task(10, TASK_FOREVER, []() { ArduinoOTA.handle(); });
+#else
+Task ota_task(10, TASK_ONCE, []() { });
+#endif
+
 Scheduler runner;
+
+bool page = true;
+
+const uint8_t brightness = 1;
+
+static const char *const VERSION = "0.0.20180310";
+
+static const int SENSOR_ADDRESS = 0x77;
+static const int MATRIX_UP_ADDRESS = 0x70;
+static const int MATRIX_DOWN_ADDRESS = 0x71;
+static const int BAUD = 115200;
+static const char *const MDNS_NAME = "sensor-wohnzimmer";
 
 const int led = 13;
 
-void handleRoot() {
-    digitalWrite(led, 1);
-    String message = "sensor.temperature ";
+void handleMetrics() {
+    String message = "sensor_temperature_celsius ";
     message += sensor_data.temperature;
-    message += "\nsensor.pressure ";
+    message += "\nsensor_pressure_pascal ";
     message += sensor_data.pressure;
-    message += "\nsensor.humidity ";
+    message += "\nsensor_humidity_percent ";
     message += sensor_data.humidity;
-    message += "\nsensor.height ";
-    message += sensor_data.height;
-    message += "\nuptime ";
-    message += millis();
+    message += "\nuptime_seconds ";
+    message += millis() / 1000.;
+    message += "\n";
     server.send(200, "text/plain", message);
-    digitalWrite(led, 0);
 }
 
 void handleNotFound(){
@@ -75,14 +95,6 @@ void handleNotFound(){
     digitalWrite(led, 0);
 }
 
-bool page = true;
-
-const uint8_t brightness = 1;
-
-static const int SENSOR_ADDRESS = 0x77;
-static const int MATRIX_UP_ADDRESS = 0x70;
-static const int MATRIX_DOWN_ADDRESS = 0x71;
-static const int BAUD = 115200;
 
 void setup_matrix(Adafruit_7segment &matrix, uint8_t address) {
     matrix.begin(address);
@@ -153,15 +165,18 @@ void setup_sensor(BME280 &sensor) {
     Serial.println(sensor.begin(), HEX);
 }
 
-void setup() {
-    Serial.begin(BAUD);
-    Serial.println("Temperature and Pressure sensor");
+void setup_runner() {
+    runner.init();
 
-    setup_matrix(matrix_up, MATRIX_UP_ADDRESS);
-    setup_matrix(matrix_down, MATRIX_DOWN_ADDRESS);
+    runner.addTask(sensor_task);
+    runner.addTask(server_task);
+    runner.addTask(display_task);
+    runner.addTask(ota_task);
 
-    setup_sensor(sensor);
+    runner.enableAll();
+}
 
+void setup_server() {
     WiFi.mode(WIFI_STA);
     WiFi.begin(ssid, password);
 
@@ -178,24 +193,74 @@ void setup() {
     Serial.print("IP address: ");
     Serial.println(WiFi.localIP());
 
-    if (MDNS.begin("sensor")) {
+    if (MDNS.begin(MDNS_NAME)) {
         Serial.println("MDNS responder started");
     }
 
-    server.on("/", handleRoot);
+    server.on("/metrics", handleMetrics);
+    server.on("/version", []() { server.send(200, "text/plain", String(VERSION) + "\n"); });
+    server.on("/free", []() { server.send(200, "text/plain", String(ESP.getFreeSketchSpace()) + "\n"); });
 
     server.onNotFound(handleNotFound);
 
     server.begin();
     Serial.println("HTTP server started");
+}
 
-    runner.init();
+void setup_ota() {
+#ifdef OTA
+    // Port defaults to 8266
+    // ArduinoOTA.setPort(8266);
 
-    runner.addTask(sensor_task);
-    runner.addTask(server_task);
-    runner.addTask(display_task);
+    // Hostname defaults to esp8266-[ChipID]
+    // ArduinoOTA.setHostname("myesp8266");
 
-    runner.enableAll();
+    // No authentication by default
+    // ArduinoOTA.setPassword(OTA_PASSWORD);
+
+    // Password can be set with it's md5 value as well
+    // MD5(admin) = 21232f297a57a5a743894a0e4a801fc3
+    // ArduinoOTA.setPasswordHash("21232f297a57a5a743894a0e4a801fc3");
+
+    ArduinoOTA.onStart([]() {
+        String type;
+        if (ArduinoOTA.getCommand() == U_FLASH)
+            type = "sketch";
+        else // U_SPIFFS
+            type = "filesystem";
+
+        // NOTE: if updating SPIFFS this would be the place to unmount SPIFFS using SPIFFS.end()
+        Serial.println("Start updating " + type);
+    });
+    ArduinoOTA.onEnd([]() {
+        Serial.println("\nEnd");
+    });
+    ArduinoOTA.onProgress([](unsigned int progress, unsigned int total) {
+        Serial.printf("Progress: %u%%\r", (progress / (total / 100)));
+    });
+    ArduinoOTA.onError([](ota_error_t error) {
+        Serial.printf("Error[%u]: ", error);
+        if (error == OTA_AUTH_ERROR) Serial.println("Auth Failed");
+        else if (error == OTA_BEGIN_ERROR) Serial.println("Begin Failed");
+        else if (error == OTA_CONNECT_ERROR) Serial.println("Connect Failed");
+        else if (error == OTA_RECEIVE_ERROR) Serial.println("Receive Failed");
+        else if (error == OTA_END_ERROR) Serial.println("End Failed");
+    });
+    ArduinoOTA.begin();
+#endif
+}
+
+void setup() {
+    Serial.begin(BAUD);
+    Serial.println("Temperature and Pressure sensor");
+
+    setup_matrix(matrix_up, MATRIX_UP_ADDRESS);
+    setup_matrix(matrix_down, MATRIX_DOWN_ADDRESS);
+
+    setup_sensor(sensor);
+    setup_server();
+    setup_ota();
+    setup_runner();
 }
 
 void serial_sensor_out(struct sensor_data_t sensor_data) {
