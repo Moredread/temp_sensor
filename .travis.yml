@@ -6,4 +6,5 @@ install:
     - pip install -U platformio
 
 script:
+    - cp src/credentials.h.template src/credentials.h
     - platformio run
