@@ -22,8 +22,8 @@ struct sensor_data_t {
     float pressure;
     float height;
     float humidity;
-    float co2;
-    float tvoc;
+    int co2;
+    int tvoc;
 };
 
 sensor_data_t sensor_data;
@@ -116,6 +116,8 @@ void setup_sensor(BME280 &sensor) {
     //commInterface can be I2C_MODE or SPI_MODE
     //specify chipSelectPin using arduino pin names
     //specify I2C address.  Can be 0x77(default) or 0x76
+
+    ccs.begin();
 
     //For I2C, enable the following and disable the SPI section
     sensor.settings.commInterface = I2C_MODE;
@@ -301,8 +303,15 @@ struct sensor_data_t get_sensor_data(BME280 &sensor) {
     sensor_data.height = sensor.readFloatAltitudeMeters();
     sensor_data.humidity = sensor.readFloatHumidity();
 
-    sensor_data.co2 = ccs.geteCO2();
-    sensor_data.tvoc = ccs.getTVOC();
+    if(ccs.available()) {
+      Serial.println("Sensor data available");
+      if(ccs.readData()) {
+        sensor_data.co2 = ccs.geteCO2();
+        sensor_data.tvoc = ccs.getTVOC();
+      } else {
+        Serial.println("Error");
+      };
+    };
 
     return sensor_data;
 }
