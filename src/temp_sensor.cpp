@@ -22,6 +22,8 @@ struct sensor_data_t {
     float pressure;
     float height;
     float humidity;
+    float co2;
+    float tvoc;
 };
 
 sensor_data_t sensor_data;
@@ -55,7 +57,7 @@ bool page = true;
 
 const uint8_t brightness = 1;
 
-static const char *const VERSION = "0.0.20180310";
+static const char *const VERSION = "0.0.20190729";
 
 static const int SENSOR_ADDRESS = 0x77;
 static const int MATRIX_UP_ADDRESS = 0x70;
@@ -65,6 +67,9 @@ static const char *const MDNS_NAME = "sensor-wohnzimmer";
 
 const int led = 13;
 
+#include "Adafruit_CCS811.h"
+Adafruit_CCS811 ccs;
+
 void handleMetrics() {
     String message = "sensor_temperature_celsius ";
     message += sensor_data.temperature;
@@ -72,6 +77,10 @@ void handleMetrics() {
     message += sensor_data.pressure;
     message += "\nsensor_humidity_percent ";
     message += sensor_data.humidity;
+    message += "\nsensor_co2_ppm ";
+    message += sensor_data.co2;
+    message += "\nsensor_tvoc_ppm ";
+    message += sensor_data.tvoc;
     message += "\nuptime_seconds ";
     message += millis() / 1000.;
     message += "\n";
@@ -276,6 +285,11 @@ void serial_sensor_out(struct sensor_data_t sensor_data) {
     Serial.print("Height: ");
     Serial.println(sensor_data.height);
 
+    Serial.print("CO2: ");
+    Serial.println(sensor_data.co2);
+    Serial.print("TVOC: ");
+    Serial.println(sensor_data.tvoc);
+
     Serial.println();
 }
 
@@ -286,6 +300,9 @@ struct sensor_data_t get_sensor_data(BME280 &sensor) {
     sensor_data.pressure = sensor.readFloatPressure();
     sensor_data.height = sensor.readFloatAltitudeMeters();
     sensor_data.humidity = sensor.readFloatHumidity();
+
+    sensor_data.co2 = ccs.geteCO2();
+    sensor_data.tvoc = ccs.getTVOC();
 
     return sensor_data;
 }
